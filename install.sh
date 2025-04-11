@@ -19,7 +19,7 @@ apt-get update
 
 # Install required packages
 echo "Installing required packages..."
-apt-get install -y python3-pip python3-gpiozero python3-flask cec-utils python3-smbus i2c-tools
+apt-get install -y python3-pip python3-gpiozero python3-flask cec-utils python3-smbus i2c-tools python3-venv python3-full
 
 # Enable I2C if not already enabled
 if ! grep -q "^dtparam=i2c_arm=on" /boot/config.txt; then
@@ -27,9 +27,29 @@ if ! grep -q "^dtparam=i2c_arm=on" /boot/config.txt; then
   echo "dtparam=i2c_arm=on" >> /boot/config.txt
 fi
 
-# Install Python dependencies
+# Set up installation directory
+INSTALL_DIR=/opt/cec-test-tool
+mkdir -p $INSTALL_DIR
+
+# Clone the repository if not already done
+if [ ! -d "$INSTALL_DIR/.git" ]; then
+  echo "Downloading CEC Test Tool..."
+  rm -rf $INSTALL_DIR/*
+  git clone https://github.com/dannykeren/cec-test-tool.git $INSTALL_DIR
+else
+  echo "Updating CEC Test Tool..."
+  cd $INSTALL_DIR
+  git pull
+fi
+
+# Create and activate a virtual environment
+echo "Setting up Python virtual environment..."
+python3 -m venv $INSTALL_DIR/venv
+source $INSTALL_DIR/venv/bin/activate
+
+# Install Python dependencies in the virtual environment
 echo "Installing Python dependencies..."
-pip3 install flask adafruit-circuitpython-ssd1306 pillow pycdcj RPi.GPIO
+pip install flask adafruit-circuitpython-ssd1306 pillow pycdcj RPi.GPIO
 
 # Create a systemd service to start the application on boot
 echo "Creating systemd service..."
@@ -39,8 +59,8 @@ Description=CEC Test Tool
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 $(pwd)/server.py
-WorkingDirectory=$(pwd)
+ExecStart=$INSTALL_DIR/venv/bin/python $INSTALL_DIR/server.py
+WorkingDirectory=$INSTALL_DIR
 Restart=always
 User=pi
 Group=pi
@@ -54,6 +74,7 @@ systemctl enable cec-test-tool.service
 
 # Set up permissions
 echo "Setting up permissions..."
+chown -R pi:pi $INSTALL_DIR
 usermod -a -G gpio,i2c pi
 
 echo "========================================="
