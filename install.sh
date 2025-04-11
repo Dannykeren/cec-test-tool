@@ -62,8 +62,8 @@ After=network.target
 ExecStart=$INSTALL_DIR/venv/bin/python $INSTALL_DIR/server.py
 WorkingDirectory=$INSTALL_DIR
 Restart=always
-User=pi
-Group=pi
+User=${USER_TO_SETUP}
+Group=${GROUP_TO_SETUP}
 
 [Install]
 WantedBy=multi-user.target
@@ -74,8 +74,16 @@ systemctl enable cec-test-tool.service
 
 # Set up permissions
 echo "Setting up permissions..."
-chown -R pi:pi $INSTALL_DIR
-usermod -a -G gpio,i2c pi
+# Get the current non-root user (usually the user who ran sudo)
+CURRENT_USER=$(logname || who -m | awk '{print $1}')
+CURRENT_GROUP=$(id -gn $CURRENT_USER)
+
+# Use the detected user or fallback to admin if detection fails
+USER_TO_SETUP=${CURRENT_USER:-admin}
+GROUP_TO_SETUP=${CURRENT_GROUP:-admin}
+
+chown -R $USER_TO_SETUP:$GROUP_TO_SETUP $INSTALL_DIR
+usermod -a -G gpio,i2c $USER_TO_SETUP
 
 echo "========================================="
 echo "Installation complete!"
