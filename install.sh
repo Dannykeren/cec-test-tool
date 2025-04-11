@@ -55,6 +55,14 @@ source $INSTALL_DIR/venv/bin/activate
 echo "Installing Python dependencies..."
 pip install flask adafruit-circuitpython-ssd1306 pillow RPi.GPIO
 
+# Get the current non-root user (usually the user who ran sudo)
+CURRENT_USER=$(logname || who -m | awk '{print $1}')
+CURRENT_GROUP=$(id -gn $CURRENT_USER)
+
+# Use the detected user or fallback to admin if detection fails
+USER_TO_SETUP=${CURRENT_USER:-admin}
+GROUP_TO_SETUP=${CURRENT_GROUP:-admin}
+
 # Create a systemd service to start the application on boot
 echo "Creating systemd service..."
 cat > /etc/systemd/system/cec-test-tool.service << EOF
@@ -78,15 +86,9 @@ systemctl enable cec-test-tool.service
 
 # Set up permissions
 echo "Setting up permissions..."
-# Get the current non-root user (usually the user who ran sudo)
-CURRENT_USER=$(logname || who -m | awk '{print $1}')
-CURRENT_GROUP=$(id -gn $CURRENT_USER)
-
-# Use the detected user or fallback to admin if detection fails
-USER_TO_SETUP=${CURRENT_USER:-admin}
-GROUP_TO_SETUP=${CURRENT_GROUP:-admin}
 
 chown -R $USER_TO_SETUP:$GROUP_TO_SETUP $INSTALL_DIR
+chmod 777 /dev/gpiomem
 usermod -a -G gpio,i2c $USER_TO_SETUP
 
 echo "========================================="
