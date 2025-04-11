@@ -1,3 +1,4 @@
+console.log('Script.js loaded and executing!');
 // CEC Test Tool Web Interface
 document.addEventListener('DOMContentLoaded', function() {
     // DOM elements
