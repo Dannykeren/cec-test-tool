@@ -1,0 +1,154 @@
+/* Basic styles for CEC Test Tool */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+    background-color: #f4f4f4;
+    color: #333;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 20px;
+    padding: 10px;
+    background-color: #333;
+    color: #fff;
+    border-radius: 5px;
+}
+
+h1, h2 {
+    margin-bottom: 10px;
+}
+
+.control-panel {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.button-group {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 16px;
+    transition: background-color 0.3s;
+}
+
+.btn:hover {
+    opacity: 0.9;
+}
+
+.btn-success {
+    background-color: #28a745;
+    color: white;
+    flex: 1;
+    margin-right: 10px;
+}
+
+.btn-danger {
+    background-color: #dc3545;
+    color: white;
+    flex: 1;
+    margin-left: 10px;
+}
+
+.btn-info {
+    background-color: #17a2b8;
+    color: white;
+    margin-right: 10px;
+}
+
+.btn-primary {
+    background-color: #007bff;
+    color: white;
+}
+
+.status-panel, .custom-command {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: 5px;
+}
+
+.output-area {
+    margin-top: 15px;
+    padding: 10px;
+    background-color: #333;
+    color: #fff;
+    border-radius: 5px;
+    min-height: 100px;
+    font-family: monospace;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+}
+
+.command-input-group {
+    display: flex;
+    margin-bottom: 10px;
+}
+
+.command-input-group input {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px 0 0 5px;
+    font-family: monospace;
+}
+
+.command-input-group button {
+    border-radius: 0 5px 5px 0;
+}
+
+.command-help {
+    font-size: 14px;
+    color: #666;
+}
+
+.command-help ul {
+    margin-left: 20px;
+}
+
+.command-help code {
+    background-color: #f1f1f1;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: monospace;
+}
+
+footer {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 14px;
+    color: #666;
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+    .button-group {
+        flex-direction: column;
+    }
+    
+    .btn-success, .btn-danger {
+        margin: 5px 0;
+    }
+}

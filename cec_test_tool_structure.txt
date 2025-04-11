@@ -1,0 +1,11 @@
+cec-test-tool/
+├── install.sh                # Installation script
+├── README.md                 # Documentation
+├── cec_control.py            # Main CEC control script
+├── gpio_handler.py           # GPIO interface
+├── oled_display.py           # OLED screen controller
+├── web_gui/                  # Web GUI files
+│   ├── index.html            # Simple interface
+│   ├── style.css             # Minimal styling
+│   └── script.js             # Frontend JavaScript
+└── server.py                 # Web server to serve the GUI
