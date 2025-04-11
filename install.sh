@@ -17,6 +17,10 @@ fi
 echo "Updating package lists..."
 apt-get update
 
+# Perform full system upgrade
+echo "Upgrading system packages..."
+apt-get upgrade -y
+
 # Install required packages
 echo "Installing required packages..."
 apt-get install -y cec-utils i2c-tools python3-venv python3-full
