@@ -19,7 +19,7 @@ apt-get update
 
 # Install required packages
 echo "Installing required packages..."
-apt-get install -y python3-pip python3-gpiozero python3-flask cec-utils python3-smbus i2c-tools python3-venv python3-full
+apt-get install -y cec-utils i2c-tools python3-venv python3-full
 
 # Enable I2C if not already enabled
 if ! grep -q "^dtparam=i2c_arm=on" /boot/config.txt; then
@@ -49,7 +49,7 @@ source $INSTALL_DIR/venv/bin/activate
 
 # Install Python dependencies in the virtual environment
 echo "Installing Python dependencies..."
-pip install flask adafruit-circuitpython-ssd1306 pillow pycdcj RPi.GPIO
+pip install flask adafruit-circuitpython-ssd1306 pillow RPi.GPIO
 
 # Create a systemd service to start the application on boot
 echo "Creating systemd service..."
