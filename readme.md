@@ -35,7 +35,7 @@ A simple HDMI-CEC testing tool for Raspberry Pi with GPIO button support and OLE
 To install the CEC Test Tool, run the following command on your Raspberry Pi:
 
 ```bash
-curl -sSL https://github.com/yourusername/cec-test-tool/raw/main/install.sh | sudo bash
+curl -sSL https://github.com/dannykeren/cec-test-tool/raw/main/install.sh | sudo bash
 ```
 
 This will:
