@@ -25,7 +25,7 @@ logging.basicConfig(
 logger = logging.getLogger("server")
 
 # Create Flask app
-app = Flask(__name__, static_folder="web_gui")
+app = Flask(__name__, static_folder="web_gui", static_url_path='')
 
 # Initialize hardware
 gpio_thread = None
