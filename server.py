@@ -12,6 +12,7 @@ from flask import Flask, request, jsonify, send_from_directory
 import cec_control
 import gpio_handler
 import oled_display
+import time
 
 # Set up logging
 logging.basicConfig(
@@ -100,23 +101,37 @@ def start_gpio_thread():
     gpio_thread.daemon = True  # Thread will exit when the main program exits
     gpio_thread.start()
 
+ # Add a log to verify the thread started
+    if gpio_thread.is_alive():
+        logger.info("GPIO handler thread started successfully")
+    else:
+        logger.error("Failed to start GPIO handler thread")
+
 def initialize_hardware():
     """Initialize the hardware components"""
     global oled_initialized
     
     # Initialize OLED display
-    oled_initialized = oled_display.initialize_display()
-    if oled_initialized:
-        ip_address = get_ip_address()
-        oled_display.show_status("Starting...", "CEC Test Tool")
-        time.sleep(2)
-        oled_display.show_ip_address(f"http://{ip_address}:5000")
+    try:
+        oled_initialized = oled_display.initialize_display()
+        if oled_initialized:
+            ip_address = get_ip_address()
+            oled_display.show_status("Starting...", "CEC Test Tool")
+            time.sleep(2)
+            oled_display.show_ip_address(f"http://{ip_address}:5000")
+        else:
+            logger.warning("Failed to initialize OLED display")
+    except Exception as e:
+        logger.error(f"OLED display error: {e}")
+        oled_initialized = False
     
     # Start GPIO handler
-    start_gpio_thread()
+    try:
+        start_gpio_thread()
+    except Exception as e:
+        logger.error(f"Error starting GPIO handler: {e}")
 
 if __name__ == '__main__':
-    import time
     try:
         # Initialize hardware
         initialize_hardware()
