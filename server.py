@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CEC Test Tool - Web Server
+CEC Test Tool - Web Server with Integrated GPIO Handling
 Serves the web GUI and handles API requests
 """
 import os
@@ -8,11 +8,11 @@ import logging
 import json
 import socket
 import threading
+import time
+import RPi.GPIO as GPIO
 from flask import Flask, request, jsonify, send_from_directory
 import cec_control
-import gpio_handler
 import oled_display
-import time
 
 # Set up logging
 logging.basicConfig(
@@ -32,6 +32,12 @@ app = Flask(__name__, static_folder="web_gui", static_url_path='')
 # Initialize hardware
 gpio_thread = None
 oled_initialized = False
+
+# GPIO Configuration
+POWER_ON_PIN = 17   # Physical pin 11
+POWER_OFF_PIN = 27  # Physical pin 13
+gpio_initialized = False
+gpio_running = False
 
 def get_ip_address():
     """Get the IP address of the Raspberry Pi"""
@@ -95,29 +101,115 @@ def custom_command():
     result = cec_control.send_custom_command(data['command'])
     return jsonify({'status': 'success', 'result': result})
 
+def init_gpio():
+    """Initialize GPIO directly in server"""
+    global gpio_initialized
+    
+    try:
+        # Clean up any existing setup
+        try:
+            GPIO.cleanup()
+        except:
+            pass
+            
+        # Set mode and configure pins
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        GPIO.setup(POWER_ON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        GPIO.setup(POWER_OFF_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        
+        logger.info(f"GPIO initialized directly in server. Pins: ON={POWER_ON_PIN}, OFF={POWER_OFF_PIN}")
+        gpio_initialized = True
+        return True
+    except Exception as e:
+        logger.error(f"GPIO initialization failed: {e}")
+        gpio_initialized = False
+        return False
+
+def gpio_monitoring_thread():
+    """Thread function for monitoring GPIO pins"""
+    global gpio_running
+    
+    if not gpio_initialized:
+        logger.error("Cannot start GPIO monitoring - GPIO not initialized")
+        return
+    
+    logger.info("Starting GPIO monitoring thread")
+    gpio_running = True
+    
+    # Initialize state tracking
+    prev_on = GPIO.input(POWER_ON_PIN)
+    prev_off = GPIO.input(POWER_OFF_PIN)
+    last_on_time = 0
+    last_off_time = 0
+    on_presses = 0
+    off_presses = 0
+    
+    try:
+        while gpio_running:
+            # Read current pin states
+            curr_on = GPIO.input(POWER_ON_PIN)
+            curr_off = GPIO.input(POWER_OFF_PIN)
+            curr_time = time.time()
+            
+            # Detect ON button press (LOW to HIGH transition)
+            if curr_on == 1 and prev_on == 0:
+                if curr_time - last_on_time > 0.3:  # 300ms debounce
+                    on_presses += 1
+                    logger.info(f"ON button pressed #{on_presses}")
+                    cec_control.power_on()
+                    last_on_time = curr_time
+            
+            # Detect OFF button press (LOW to HIGH transition)
+            if curr_off == 1 and prev_off == 0:
+                if curr_time - last_off_time > 0.3:  # 300ms debounce
+                    off_presses += 1
+                    logger.info(f"OFF button pressed #{off_presses}")
+                    cec_control.power_off()
+                    last_off_time = curr_time
+            
+            # Update previous states
+            prev_on = curr_on
+            prev_off = curr_off
+            
+            # Sleep briefly
+            time.sleep(0.05)
+    
+    except Exception as e:
+        logger.error(f"Error in GPIO monitoring thread: {e}")
+    finally:
+        logger.info("GPIO monitoring thread stopped")
+
 def start_gpio_thread():
-    """Start the GPIO handler in a separate thread"""
+    """Start the GPIO monitoring thread"""
     global gpio_thread
     
-    # Cleanup any existing threads
+    # Initialize GPIO first
+    if not gpio_initialized:
+        if not init_gpio():
+            logger.error("Failed to initialize GPIO, cannot start monitoring thread")
+            return False
+    
+    # Check if thread is already running
     if gpio_thread and gpio_thread.is_alive():
-        logger.info("Existing GPIO thread is still running")
-        return
-        
-    # Start a new thread
+        logger.info("GPIO thread already running")
+        return True
+    
+    # Start thread
     try:
-        gpio_thread = threading.Thread(target=gpio_handler.start_gpio_handler)
-        gpio_thread.daemon = True  # Thread will exit when the main program exits
+        gpio_thread = threading.Thread(target=gpio_monitoring_thread)
+        gpio_thread.daemon = True
         gpio_thread.start()
         
-        # Add a log to verify the thread started
         if gpio_thread.is_alive():
-            logger.info("GPIO handler thread started successfully")
+            logger.info("GPIO monitoring thread started successfully")
+            return True
         else:
-            logger.error("Failed to start GPIO handler thread")
-            
+            logger.error("Failed to start GPIO thread")
+            return False
     except Exception as e:
         logger.error(f"Error starting GPIO thread: {e}")
+        return False
 
 def initialize_hardware():
     """Initialize the hardware components"""
@@ -137,11 +229,8 @@ def initialize_hardware():
         logger.error(f"OLED display error: {e}")
         oled_initialized = False
     
-    # Start GPIO handler
-    try:
-        start_gpio_thread()
-    except Exception as e:
-        logger.error(f"Error starting GPIO handler: {e}")
+    # Initialize and start GPIO monitoring
+    start_gpio_thread()
 
 if __name__ == '__main__':
     try:
@@ -159,5 +248,10 @@ if __name__ == '__main__':
         logger.error(f"Server error: {e}")
     finally:
         # Clean up resources
+        gpio_running = False
         if oled_initialized:
             oled_display.cleanup()
+        try:
+            GPIO.cleanup()
+        except:
+            pass
