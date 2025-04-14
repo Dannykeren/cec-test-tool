@@ -23,7 +23,7 @@ apt-get upgrade -y
 
 # Install required packages
 echo "Installing required packages..."
-apt-get install -y cec-utils i2c-tools python3-venv python3-full
+apt-get install -y cec-utils i2c-tools python3-venv python3-full libjpeg-dev zlib1g-dev
 
 # Enable I2C if not already enabled
 if ! grep -q "^dtparam=i2c_arm=on" /boot/config.txt; then
