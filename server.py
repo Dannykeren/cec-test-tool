@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-CEC Test Tool - Web Server with Direct GPIO Monitoring
-Simplest possible implementation
+CEC Test Tool - Web Server
+Modified to work with standalone GPIO handler
 """
 import os
 import logging
@@ -9,7 +9,7 @@ import json
 import socket
 import threading
 import time
-import RPi.GPIO as GPIO
+import subprocess
 from flask import Flask, request, jsonify, send_from_directory
 import cec_control
 import oled_display
@@ -31,11 +31,18 @@ app = Flask(__name__, static_folder="web_gui", static_url_path='')
 
 # Initialize hardware
 oled_initialized = False
+gpio_handler_process = None
 
-# GPIO Configuration
-POWER_ON_PIN = 17   # Physical pin 11
-POWER_OFF_PIN = 27  # Physical pin 13
-running = True
+# Command file paths
+COMMAND_DIR = "/tmp/cec_commands"
+ON_COMMAND_FILE = os.path.join(COMMAND_DIR, "power_on_trigger")
+OFF_COMMAND_FILE = os.path.join(COMMAND_DIR, "power_off_trigger")
+
+# Last processed command times
+last_processed = {
+    'on': 0,
+    'off': 0
+}
 
 def get_ip_address():
     """Get the IP address of the Raspberry Pi"""
@@ -96,104 +103,110 @@ def custom_command():
     result = cec_control.send_custom_command(data['command'])
     return jsonify({'status': 'success', 'result': result})
 
-def direct_gpio_monitor():
-    """Direct GPIO monitoring thread without event detection"""
-    logger.info("Starting direct GPIO monitoring thread")
+def check_command_files():
+    """Check for command trigger files and process them"""
+    global last_processed
+    
+    # Check ON command file
+    if os.path.exists(ON_COMMAND_FILE):
+        try:
+            # Read timestamp from file
+            with open(ON_COMMAND_FILE, 'r') as f:
+                timestamp = float(f.read().strip())
+            
+            # Check if this is a new command
+            if timestamp > last_processed['on']:
+                logger.info(f"Processing power ON command from GPIO handler")
+                cec_control.power_on()
+                last_processed['on'] = timestamp
+                
+                # Show on OLED if available
+                if oled_initialized:
+                    oled_display.show_power_on()
+            
+            # Remove the trigger file
+            os.remove(ON_COMMAND_FILE)
+            
+        except Exception as e:
+            logger.error(f"Error processing ON command file: {e}")
+    
+    # Check OFF command file
+    if os.path.exists(OFF_COMMAND_FILE):
+        try:
+            # Read timestamp from file
+            with open(OFF_COMMAND_FILE, 'r') as f:
+                timestamp = float(f.read().strip())
+            
+            # Check if this is a new command
+            if timestamp > last_processed['off']:
+                logger.info(f"Processing power OFF command from GPIO handler")
+                cec_control.power_off()
+                last_processed['off'] = timestamp
+                
+                # Show on OLED if available
+                if oled_initialized:
+                    oled_display.show_power_off()
+            
+            # Remove the trigger file
+            os.remove(OFF_COMMAND_FILE)
+            
+        except Exception as e:
+            logger.error(f"Error processing OFF command file: {e}")
+
+def command_monitor_thread():
+    """Thread to monitor for command files from the GPIO handler"""
+    logger.info("Starting command monitor thread")
+    
+    # Create command directory if it doesn't exist
+    try:
+        os.makedirs(COMMAND_DIR, exist_ok=True)
+    except Exception as e:
+        logger.error(f"Failed to create command directory: {e}")
+    
+    # Main monitoring loop
+    while True:
+        try:
+            # Check for command files
+            check_command_files()
+            
+            # Sleep briefly
+            time.sleep(0.1)
+            
+        except Exception as e:
+            logger.error(f"Error in command monitor thread: {e}")
+            time.sleep(1)
+
+def start_gpio_handler():
+    """Start the GPIO handler as a separate Python process"""
+    global gpio_handler_process
     
     try:
-        # Setup GPIO
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
+        # Check if script exists
+        handler_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gpio_handler.py")
+        if not os.path.exists(handler_script):
+            logger.error(f"GPIO handler script not found at {handler_script}")
+            return False
         
-        try:
-            # First clean up any existing configuration
-            GPIO.cleanup(POWER_ON_PIN)
-            GPIO.cleanup(POWER_OFF_PIN)
-        except:
-            pass
+        # Make sure it's executable
+        os.chmod(handler_script, 0o755)
         
-        # Setup input pins
-        GPIO.setup(POWER_ON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-        GPIO.setup(POWER_OFF_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        # Start the process
+        logger.info(f"Starting GPIO handler process: {handler_script}")
+        gpio_handler_process = subprocess.Popen(["python3", handler_script], 
+                                               stdout=subprocess.PIPE, 
+                                               stderr=subprocess.PIPE)
         
-        logger.info("GPIO pins configured successfully")
-        
-        # Initialize variables for state tracking
-        last_on_state = GPIO.input(POWER_ON_PIN)
-        last_off_state = GPIO.input(POWER_OFF_PIN)
-        last_press_time = 0
-        on_count = 0
-        off_count = 0
-        
-        # Main monitoring loop
-        while running:
-            try:
-                # Read current pin states
-                curr_on_state = GPIO.input(POWER_ON_PIN)
-                curr_off_state = GPIO.input(POWER_OFF_PIN)
-                curr_time = time.time()
-                
-                # Check for pin state changes (LOW to HIGH = button press)
-                
-                # ON button
-                if curr_on_state == 1 and last_on_state == 0:
-                    # Simple debounce - at least 300ms between presses
-                    if curr_time - last_press_time > 0.3:
-                        on_count += 1
-                        logger.info(f"ON button pressed #{on_count}")
-                        
-                        # Send CEC command
-                        cec_control.power_on()
-                        
-                        # Update last press time
-                        last_press_time = curr_time
-                
-                # OFF button
-                if curr_off_state == 1 and last_off_state == 0:
-                    # Simple debounce - at least 300ms between presses
-                    if curr_time - last_press_time > 0.3:
-                        off_count += 1
-                        logger.info(f"OFF button pressed #{off_count}")
-                        
-                        # Send CEC command
-                        cec_control.power_off()
-                        
-                        # Update last press time
-                        last_press_time = curr_time
-                
-                # Update last states
-                last_on_state = curr_on_state
-                last_off_state = curr_off_state
-                
-                # Brief sleep to reduce CPU usage
-                time.sleep(0.05)
-                
-            except Exception as e:
-                logger.error(f"Error in GPIO monitoring loop: {e}")
-                time.sleep(0.5)
-                
-                # Try to recover
-                try:
-                    # Re-configure GPIO pins
-                    GPIO.setup(POWER_ON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-                    GPIO.setup(POWER_OFF_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-                    
-                    # Reset state tracking
-                    last_on_state = GPIO.input(POWER_ON_PIN)
-                    last_off_state = GPIO.input(POWER_OFF_PIN)
-                    
-                    logger.info("Recovered from GPIO monitoring error")
-                except:
-                    pass
-    
+        # Check if process started successfully
+        if gpio_handler_process.poll() is None:
+            logger.info("GPIO handler process started successfully")
+            return True
+        else:
+            logger.error("GPIO handler process failed to start")
+            return False
+            
     except Exception as e:
-        logger.error(f"Critical error in GPIO monitoring thread: {e}")
-    finally:
-        logger.info("GPIO monitoring thread stopped")
-        try:
-            GPIO.cleanup()
-        except:
-            pass
+        logger.error(f"Error starting GPIO handler: {e}")
+        return False
 
 def initialize_hardware():
     """Initialize hardware components"""
@@ -213,15 +226,19 @@ def initialize_hardware():
         logger.error(f"OLED display error: {e}")
         oled_initialized = False
     
-    # Start GPIO monitoring thread
-    gpio_thread = threading.Thread(target=direct_gpio_monitor)
-    gpio_thread.daemon = True
-    gpio_thread.start()
+    # Start GPIO handler as separate process
+    if not start_gpio_handler():
+        logger.warning("Failed to start GPIO handler process, buttons may not work")
     
-    if gpio_thread.is_alive():
-        logger.info("GPIO monitoring thread started successfully")
+    # Start command monitor thread
+    monitor_thread = threading.Thread(target=command_monitor_thread)
+    monitor_thread.daemon = True
+    monitor_thread.start()
+    
+    if monitor_thread.is_alive():
+        logger.info("Command monitor thread started successfully")
     else:
-        logger.error("Failed to start GPIO monitoring thread")
+        logger.error("Failed to start command monitor thread")
 
 if __name__ == '__main__':
     try:
@@ -239,10 +256,13 @@ if __name__ == '__main__':
         logger.error(f"Server error: {e}")
     finally:
         # Clean up resources
-        running = False
         if oled_initialized:
             oled_display.cleanup()
-        try:
-            GPIO.cleanup()
-        except:
-            pass
+        
+        # Terminate GPIO handler process if running
+        if gpio_handler_process and gpio_handler_process.poll() is None:
+            try:
+                gpio_handler_process.terminate()
+                logger.info("GPIO handler process terminated")
+            except:
+                pass
