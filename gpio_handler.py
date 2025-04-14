@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Standalone GPIO Handler for CEC Test Tool
-Runs as a separate process and uses a simple file-based communication system
+Using event-based detection instead of polling
 """
 import RPi.GPIO as GPIO
 import time
@@ -15,8 +15,7 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("/tmp/gpio_handler.log"),
-        logging.StreamHandler()
+        logging.StreamHandler()  # Log to console only to avoid permission issues
     ]
 )
 logger = logging.getLogger("gpio_handler")
@@ -25,16 +24,23 @@ logger = logging.getLogger("gpio_handler")
 POWER_ON_PIN = 17   # Physical pin 11
 POWER_OFF_PIN = 27  # Physical pin 13
 
-# Flag to control the loop
-running = True
-
 # Command file paths
 COMMAND_DIR = "/tmp/cec_commands"
 ON_COMMAND_FILE = os.path.join(COMMAND_DIR, "power_on_trigger")
 OFF_COMMAND_FILE = os.path.join(COMMAND_DIR, "power_off_trigger")
 
+def on_button_callback(channel):
+    """Callback for ON button press"""
+    logger.info(f"ON button pressed (pin {channel})")
+    trigger_power_on()
+
+def off_button_callback(channel):
+    """Callback for OFF button press"""
+    logger.info(f"OFF button pressed (pin {channel})")
+    trigger_power_off()
+
 def setup_gpio():
-    """Set up GPIO pins"""
+    """Set up GPIO pins with event detection"""
     try:
         # Clean up any existing setup
         try:
@@ -45,10 +51,25 @@ def setup_gpio():
         # Setup GPIO
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
+        
+        # Configure pins with pull-down resistors
         GPIO.setup(POWER_ON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         GPIO.setup(POWER_OFF_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         
-        logger.info(f"GPIO pins configured: ON={POWER_ON_PIN}, OFF={POWER_OFF_PIN}")
+        # Remove any existing event detection
+        try:
+            GPIO.remove_event_detect(POWER_ON_PIN)
+            GPIO.remove_event_detect(POWER_OFF_PIN)
+        except:
+            pass
+        
+        # Add event detection with very long bouncetime
+        GPIO.add_event_detect(POWER_ON_PIN, GPIO.RISING, 
+                             callback=on_button_callback, bouncetime=1000)
+        GPIO.add_event_detect(POWER_OFF_PIN, GPIO.RISING,
+                             callback=off_button_callback, bouncetime=1000)
+        
+        logger.info(f"GPIO pins configured with event detection")
         return True
     except Exception as e:
         logger.error(f"GPIO setup failed: {e}")
@@ -86,8 +107,8 @@ def trigger_power_on():
                           timeout=3, 
                           stdout=subprocess.DEVNULL, 
                           stderr=subprocess.DEVNULL)
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"Error executing cec-client for ON: {e}")
             
     except Exception as e:
         logger.error(f"Failed to create power ON trigger: {e}")
@@ -106,49 +127,11 @@ def trigger_power_off():
                           timeout=3, 
                           stdout=subprocess.DEVNULL, 
                           stderr=subprocess.DEVNULL)
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"Error executing cec-client for OFF: {e}")
             
     except Exception as e:
         logger.error(f"Failed to create power OFF trigger: {e}")
-
-def gpio_monitoring_loop():
-    """Simplified monitoring loop - just checks current state and acts"""
-    logger.info("Starting simplified GPIO monitoring loop")
-    
-    on_count = 0
-    off_count = 0
-    
-    # Main loop
-    while running:
-        try:
-            # Simply check if pins are HIGH right now
-            if GPIO.input(POWER_ON_PIN) == 1:
-                on_count += 1
-                logger.info(f"ON button is HIGH #{on_count}")
-                trigger_power_on()
-                # Sleep after sending command to avoid duplicate triggers
-                time.sleep(0.5)
-            
-            if GPIO.input(POWER_OFF_PIN) == 1:
-                off_count += 1
-                logger.info(f"OFF button is HIGH #{off_count}")
-                trigger_power_off()
-                # Sleep after sending command to avoid duplicate triggers
-                time.sleep(0.5)
-            
-            # Brief sleep to avoid hammering the CPU
-            time.sleep(0.1)
-            
-        except Exception as e:
-            logger.error(f"Error in monitoring loop: {e}")
-            time.sleep(1)
-            
-            # Try to recover
-            try:
-                setup_gpio()
-            except:
-                pass
 
 def start_gpio_handler():
     """Main entry point for GPIO handler"""
@@ -164,8 +147,10 @@ def start_gpio_handler():
         return
     
     try:
-        # Start monitoring loop
-        gpio_monitoring_loop()
+        # Since we're using event detection, just keep the program running
+        logger.info("GPIO handler running with event detection - press Ctrl+C to exit")
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
         logger.info("Stopped by user")
     except Exception as e:
