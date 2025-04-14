@@ -29,7 +29,8 @@ DEBOUNCE_TIME = 0.3
 
 # Thread safety
 button_lock = Lock()
-last_button_press = 0
+last_on_press = 0
+last_off_press = 0
 
 def setup_gpio():
     """Initialize the GPIO pins"""
@@ -48,34 +49,43 @@ def setup_gpio():
         logger.error(f"GPIO setup failed: {e}")
         return False
 
-def is_debounced():
-    """Check if enough time has passed since the last button press"""
-    global last_button_press
-    current_time = time.time()
-    if current_time - last_button_press < DEBOUNCE_TIME:
-        return False
-    last_button_press = current_time
-    return True
-
-def power_on_callback(channel):
+def power_on_callback():
     """Callback for power ON button press"""
-    if not is_debounced():
+    global last_on_press
+    
+    # Use separate timers for each button
+    current_time = time.time()
+    if current_time - last_on_press < DEBOUNCE_TIME:
         return
+    
+    last_on_press = current_time
     
     with button_lock:
         logger.info("Power ON button pressed")
-        response = cec_control.power_on()
-        logger.info(f"CEC response: {response}")
+        try:
+            response = cec_control.power_on()
+            logger.info(f"CEC response: {response}")
+        except Exception as e:
+            logger.error(f"Error sending power ON command: {e}")
 
-def power_off_callback(channel):
+def power_off_callback():
     """Callback for power OFF button press"""
-    if not is_debounced():
+    global last_off_press
+    
+    # Use separate timers for each button
+    current_time = time.time()
+    if current_time - last_off_press < DEBOUNCE_TIME:
         return
+    
+    last_off_press = current_time
     
     with button_lock:
         logger.info("Power OFF button pressed")
-        response = cec_control.power_off()
-        logger.info(f"CEC response: {response}")
+        try:
+            response = cec_control.power_off()
+            logger.info(f"CEC response: {response}")
+        except Exception as e:
+            logger.error(f"Error sending power OFF command: {e}")
 
 def cleanup():
     """Clean up GPIO resources"""
@@ -95,18 +105,25 @@ def manual_poll_gpio():
             # Check for state changes (0 to 1 = button pressed)
             if on_state == 1 and prev_on_state == 0:
                 logger.debug("ON button press detected in polling loop")
-                power_on_callback(POWER_ON_PIN)
+                power_on_callback()
+            # Check for button release (1 to 0)
+            elif on_state == 0 and prev_on_state == 1:
+                logger.debug("ON button released")
             
+            # Check for state changes (0 to 1 = button pressed)
             if off_state == 1 and prev_off_state == 0:
                 logger.debug("OFF button press detected in polling loop")
-                power_off_callback(POWER_OFF_PIN)
+                power_off_callback()
+            # Check for button release (1 to 0)
+            elif off_state == 0 and prev_off_state == 1:
+                logger.debug("OFF button released")
             
             # Update previous states
             prev_on_state = on_state
             prev_off_state = off_state
             
-            # Sleep to reduce CPU usage
-            time.sleep(0.1)
+            # Sleep to reduce CPU usage but still be responsive
+            time.sleep(0.05)  # Reduced from 0.1 to 0.05 for better responsiveness
             
         except Exception as e:
             logger.error(f"Error in GPIO polling loop: {e}")
@@ -119,9 +136,9 @@ def start_gpio_handler():
             logger.error("Failed to set up GPIO. Cannot continue.")
             return
         
-        logger.info("GPIO handler started with both event detection and polling")
+        logger.info("GPIO handler started with polling method")
         
-        # Start the polling thread as a backup
+        # Start the polling thread
         polling_thread = Thread(target=manual_poll_gpio)
         polling_thread.daemon = True
         polling_thread.start()
