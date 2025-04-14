@@ -90,6 +90,8 @@ echo "Setting up permissions..."
 chown -R $USER_TO_SETUP:$GROUP_TO_SETUP $INSTALL_DIR
 chmod 777 /dev/gpiomem
 usermod -a -G gpio,i2c $USER_TO_SETUP
+echo 'SUBSYSTEM=="gpio", KERNEL=="gpiochip[0-9]*", GROUP="gpio", MODE="0660"' > /etc/udev/rules.d/99-gpio.rules
+echo 'SUBSYSTEM=="gpio", KERNEL=="gpio[0-9]*", GROUP="gpio", MODE="0660"' >> /etc/udev/rules.d/99-gpio.rules
 
 echo "========================================="
 echo "Installation complete!"
