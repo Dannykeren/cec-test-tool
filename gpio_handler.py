@@ -1,113 +1,211 @@
 #!/usr/bin/env python3
 """
-CEC Test Tool - Minimal GPIO Handler
-Extremely simple approach with direct pin reading
+Standalone GPIO Handler for CEC Test Tool
+Runs as a separate process and uses a simple file-based communication system
 """
 import RPi.GPIO as GPIO
 import time
 import logging
-import cec_control
+import os
+import json
+import subprocess
 
 # Setup logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("gpio_minimal.log"),
+        logging.FileHandler("/tmp/gpio_handler.log"),
         logging.StreamHandler()
     ]
 )
-logger = logging.getLogger("gpio_minimal")
+logger = logging.getLogger("gpio_handler")
 
-# GPIO Pins (BCM mode)
+# GPIO Pins
 POWER_ON_PIN = 17   # Physical pin 11
 POWER_OFF_PIN = 27  # Physical pin 13
 
-# Control flag
+# Flag to control the loop
 running = True
 
-def setup():
-    """Very basic GPIO setup"""
+# Command file paths
+COMMAND_DIR = "/tmp/cec_commands"
+ON_COMMAND_FILE = os.path.join(COMMAND_DIR, "power_on_trigger")
+OFF_COMMAND_FILE = os.path.join(COMMAND_DIR, "power_off_trigger")
+
+def setup_gpio():
+    """Set up GPIO pins"""
     try:
         # Clean up any existing setup
         try:
             GPIO.cleanup()
         except:
             pass
-            
-        # Set BCM mode
+        
+        # Setup GPIO
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
-        
-        # Configure pins with pull-down
         GPIO.setup(POWER_ON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         GPIO.setup(POWER_OFF_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         
-        logger.info("Minimal GPIO setup complete")
+        logger.info(f"GPIO pins configured: ON={POWER_ON_PIN}, OFF={POWER_OFF_PIN}")
         return True
     except Exception as e:
         logger.error(f"GPIO setup failed: {e}")
         return False
 
-def start_gpio_handler():
-    """Start the minimal GPIO handler"""
-    global running
-    
-    logger.info("Starting minimal GPIO handler")
-    
-    if not setup():
-        logger.error("Failed to set up GPIO")
-        return
-    
-    # Track previous states and press times
-    prev_on = GPIO.input(POWER_ON_PIN)
-    prev_off = GPIO.input(POWER_OFF_PIN)
-    last_on_time = 0
-    last_off_time = 0
-    
-    # Log initial states
-    logger.info(f"Initial GPIO states - ON: {prev_on}, OFF: {prev_off}")
-    
+def setup_command_dir():
+    """Set up command directory for inter-process communication"""
     try:
-        # Main loop
-        while running:
+        # Create command directory if it doesn't exist
+        os.makedirs(COMMAND_DIR, exist_ok=True)
+        
+        # Clear any existing command files
+        if os.path.exists(ON_COMMAND_FILE):
+            os.remove(ON_COMMAND_FILE)
+        if os.path.exists(OFF_COMMAND_FILE):
+            os.remove(OFF_COMMAND_FILE)
+        
+        logger.info(f"Command directory setup at {COMMAND_DIR}")
+        return True
+    except Exception as e:
+        logger.error(f"Command directory setup failed: {e}")
+        return False
+
+def trigger_power_on():
+    """Create a trigger file for power on"""
+    try:
+        # Write timestamp to trigger file
+        with open(ON_COMMAND_FILE, 'w') as f:
+            f.write(str(time.time()))
+        logger.info("Created power ON trigger file")
+        
+        # Also execute the cec-client command directly as a backup
+        try:
+            subprocess.run(['cec-client', '-s', '-d', '1', '-o', 'CEC_TEST', '-c', 'on 0'], 
+                          timeout=3, 
+                          stdout=subprocess.DEVNULL, 
+                          stderr=subprocess.DEVNULL)
+        except:
+            pass
+            
+    except Exception as e:
+        logger.error(f"Failed to create power ON trigger: {e}")
+
+def trigger_power_off():
+    """Create a trigger file for power off"""
+    try:
+        # Write timestamp to trigger file
+        with open(OFF_COMMAND_FILE, 'w') as f:
+            f.write(str(time.time()))
+        logger.info("Created power OFF trigger file")
+        
+        # Also execute the cec-client command directly as a backup
+        try:
+            subprocess.run(['cec-client', '-s', '-d', '1', '-o', 'CEC_TEST', '-c', 'standby 0'], 
+                          timeout=3, 
+                          stdout=subprocess.DEVNULL, 
+                          stderr=subprocess.DEVNULL)
+        except:
+            pass
+            
+    except Exception as e:
+        logger.error(f"Failed to create power OFF trigger: {e}")
+
+def gpio_monitoring_loop():
+    """Main monitoring loop for GPIO pins"""
+    logger.info("Starting GPIO monitoring loop")
+    
+    # Initialize state tracking
+    last_on_state = GPIO.input(POWER_ON_PIN)
+    last_off_state = GPIO.input(POWER_OFF_PIN)
+    last_press_time = 0
+    on_count = 0
+    off_count = 0
+    
+    # Main loop
+    while running:
+        try:
             # Read current states
-            curr_on = GPIO.input(POWER_ON_PIN)
-            curr_off = GPIO.input(POWER_OFF_PIN)
+            curr_on_state = GPIO.input(POWER_ON_PIN)
+            curr_off_state = GPIO.input(POWER_OFF_PIN)
             curr_time = time.time()
             
             # Check for ON button press (LOW to HIGH)
-            if curr_on and not prev_on:
-                if curr_time - last_on_time > 0.3:  # 300ms debounce
-                    logger.info("ON button pressed - Sending power ON command")
-                    cec_control.power_on()
-                    last_on_time = curr_time
+            if curr_on_state == 1 and last_on_state == 0:
+                # Simple debounce
+                if curr_time - last_press_time > 0.3:
+                    on_count += 1
+                    logger.info(f"ON button pressed #{on_count}")
+                    trigger_power_on()
+                    last_press_time = curr_time
             
             # Check for OFF button press (LOW to HIGH)
-            if curr_off and not prev_off:
-                if curr_time - last_off_time > 0.3:  # 300ms debounce
-                    logger.info("OFF button pressed - Sending power OFF command")
-                    cec_control.power_off()
-                    last_off_time = curr_time
+            if curr_off_state == 1 and last_off_state == 0:
+                # Simple debounce
+                if curr_time - last_press_time > 0.3:
+                    off_count += 1
+                    logger.info(f"OFF button pressed #{off_count}")
+                    trigger_power_off()
+                    last_press_time = curr_time
             
             # Update previous states
-            prev_on = curr_on
-            prev_off = curr_off
+            last_on_state = curr_on_state
+            last_off_state = curr_off_state
             
-            # Brief pause
+            # Sleep briefly
             time.sleep(0.05)
             
+        except Exception as e:
+            logger.error(f"Error in monitoring loop: {e}")
+            time.sleep(1)
+            
+            # Try to recover
+            try:
+                setup_gpio()
+                last_on_state = GPIO.input(POWER_ON_PIN)
+                last_off_state = GPIO.input(POWER_OFF_PIN)
+            except:
+                pass
+
+def start_gpio_handler():
+    """Main entry point for GPIO handler"""
+    logger.info("Starting standalone GPIO handler")
+    
+    # Setup
+    if not setup_gpio():
+        logger.error("Failed to set up GPIO pins")
+        return
+    
+    if not setup_command_dir():
+        logger.error("Failed to set up command directory")
+        return
+    
+    try:
+        # Start monitoring loop
+        gpio_monitoring_loop()
     except KeyboardInterrupt:
-        logger.info("GPIO handler stopped by user")
+        logger.info("Stopped by user")
     except Exception as e:
-        logger.error(f"Error in GPIO handler: {e}")
+        logger.error(f"Fatal error: {e}")
     finally:
+        # Clean up
         try:
             GPIO.cleanup()
-            logger.info("GPIO cleaned up")
         except:
             pass
+        
+        logger.info("GPIO handler stopped")
 
+# Run the GPIO handler when the script is executed directly
 if __name__ == "__main__":
-    print("Starting minimal GPIO handler")
-    start_gpio_handler()
+    try:
+        start_gpio_handler()
+    except Exception as e:
+        logger.error(f"Unhandled exception: {e}")
+    finally:
+        # Make sure we clean up
+        try:
+            GPIO.cleanup()
+        except:
+            pass
