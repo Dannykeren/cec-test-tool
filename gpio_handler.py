@@ -27,10 +27,13 @@ logger = logging.getLogger("gpio_handler")
 POWER_ON_PIN = 17   # Physical pin 11
 POWER_OFF_PIN = 27  # Physical pin 13
 
-# Button state tracking
-button_states = {
-    'power_on': False,
-    'power_off': False
+# Button debounce time in seconds
+DEBOUNCE_TIME = 0.3
+
+# Last button press time for debouncing
+last_button_press = {
+    'power_on': 0,
+    'power_off': 0
 }
 
 # Flag to control the polling loop
@@ -108,7 +111,9 @@ def handle_power_off():
         
 def poll_gpio_pins():
     """Poll GPIO pins in a simple, reliable way"""
-    # Initialize previous states
+    global last_button_press
+    
+    # Initialize previous states - set to current state to avoid false triggers on startup
     prev_on_state = GPIO.input(POWER_ON_PIN)
     prev_off_state = GPIO.input(POWER_OFF_PIN)
     
@@ -127,36 +132,32 @@ def poll_gpio_pins():
             current_on_state = GPIO.input(POWER_ON_PIN)
             current_off_state = GPIO.input(POWER_OFF_PIN)
             
-            # Check for button press (transition from LOW to HIGH)
+            # Get current time for debouncing
+            current_time = time.time()
+            
+            # Check for ON button press with debounce
             if current_on_state == 1 and prev_on_state == 0:
+                # Button state transition detected (LOW to HIGH)
                 logger.debug("ON button state change detected (0->1)")
-                # Set button state
-                button_states['power_on'] = True
-                # Handle the button press in the polling thread directly
-                handle_power_on()
+                if current_time - last_button_press['power_on'] > DEBOUNCE_TIME:
+                    # Debounce time has elapsed, register press
+                    last_button_press['power_on'] = current_time
+                    handle_power_on()
             
-            # Check for button release (transition from HIGH to LOW)
-            elif current_on_state == 0 and prev_on_state == 1:
-                logger.debug("ON button state change detected (1->0)")
-                button_states['power_on'] = False
-            
-            # Check for OFF button press
+            # Check for OFF button press with debounce
             if current_off_state == 1 and prev_off_state == 0:
+                # Button state transition detected (LOW to HIGH)
                 logger.debug("OFF button state change detected (0->1)")
-                button_states['power_off'] = True
-                handle_power_off()
-            
-            # Check for OFF button release
-            elif current_off_state == 0 and prev_off_state == 1:
-                logger.debug("OFF button state change detected (1->0)")
-                button_states['power_off'] = False
+                if current_time - last_button_press['power_off'] > DEBOUNCE_TIME:
+                    # Debounce time has elapsed, register press
+                    last_button_press['power_off'] = current_time
+                    handle_power_off()
             
             # Update previous states
             prev_on_state = current_on_state
             prev_off_state = current_off_state
             
             # Log periodic status update (every 30 seconds)
-            current_time = time.time()
             if current_time - last_status_time > 30:
                 on_pin = GPIO.input(POWER_ON_PIN)
                 off_pin = GPIO.input(POWER_OFF_PIN)
@@ -172,6 +173,16 @@ def poll_gpio_pins():
         except Exception as e:
             logger.error(f"Exception in GPIO polling loop: {e}")
             time.sleep(0.5)  # Sleep longer on error
+            
+            # Attempt to recover from error
+            try:
+                if not gpio_setup:
+                    setup_gpio()
+                prev_on_state = GPIO.input(POWER_ON_PIN)
+                prev_off_state = GPIO.input(POWER_OFF_PIN)
+                logger.info("Recovered from error in polling loop")
+            except Exception as recovery_error:
+                logger.error(f"Failed to recover from polling error: {recovery_error}")
 
 def start_gpio_handler():
     """Start the GPIO handler with improved error handling"""
@@ -218,8 +229,3 @@ if __name__ == "__main__":
         start_gpio_handler()
     finally:
         cleanup_gpio()
-
-# Run the GPIO handler when the script is executed directly
-if __name__ == "__main__":
-    print("Starting GPIO Handler in debug mode...")
-    start_gpio_handler()
