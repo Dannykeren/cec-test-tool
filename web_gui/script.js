@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const sendCommandBtn = document.getElementById('sendCommandBtn');
     const customCommandInput = document.getElementById('customCommand');
     const statusOutput = document.getElementById('statusOutput');
+    const clearStatusBtn = document.getElementById('clearStatusBtn');
     
     // API endpoints
     const API_ENDPOINTS = {
@@ -94,6 +95,12 @@ document.addEventListener('DOMContentLoaded', function() {
             updateStatus('Status check completed:');
             updateStatus(result.result);
         }
+    });
+
+    clearStatusBtn.addEventListener('click', function() {
+        const timestamp = new Date().toLocaleTimeString();
+            statusOutput.innerHTML = `<div>[${timestamp}] Status window cleared</div>`;
+            statusOutput.scrollTop = statusOutput.scrollHeight;
     });
     
     sendCommandBtn.addEventListener('click', async function() {
