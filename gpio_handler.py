@@ -92,6 +92,7 @@ def handle_power_on():
         logger.info(f"CEC power ON response: {response[:50]}...")  # Log first 50 chars
     except Exception as e:
         logger.error(f"Exception during power ON command: {e}")
+        GPIO.cleanup()  # Clean up GPIO after handling button press
 
 def handle_power_off():
     """Handle power off button press with extensive debugging"""
@@ -102,7 +103,8 @@ def handle_power_off():
         logger.info(f"CEC power OFF response: {response[:50]}...")  # Log first 50 chars
     except Exception as e:
         logger.error(f"Exception during power OFF command: {e}")
-
+        GPIO.cleanup()  # Clean up GPIO after handling button press
+        
 def poll_gpio_pins():
     """Poll GPIO pins in a simple, reliable way"""
     # Initialize previous states
