@@ -98,15 +98,26 @@ def custom_command():
 def start_gpio_thread():
     """Start the GPIO handler in a separate thread"""
     global gpio_thread
-    gpio_thread = threading.Thread(target=gpio_handler.start_gpio_handler)
-    gpio_thread.daemon = True  # Thread will exit when the main program exits
-    gpio_thread.start()
-
- # Add a log to verify the thread started
-    if gpio_thread.is_alive():
-        logger.info("GPIO handler thread started successfully")
-    else:
-        logger.error("Failed to start GPIO handler thread")
+    
+    # Cleanup any existing threads
+    if gpio_thread and gpio_thread.is_alive():
+        logger.info("Existing GPIO thread is still running")
+        return
+        
+    # Start a new thread
+    try:
+        gpio_thread = threading.Thread(target=gpio_handler.start_gpio_handler)
+        gpio_thread.daemon = True  # Thread will exit when the main program exits
+        gpio_thread.start()
+        
+        # Add a log to verify the thread started
+        if gpio_thread.is_alive():
+            logger.info("GPIO handler thread started successfully")
+        else:
+            logger.error("Failed to start GPIO handler thread")
+            
+    except Exception as e:
+        logger.error(f"Error starting GPIO thread: {e}")
 
 def initialize_hardware():
     """Initialize the hardware components"""
