@@ -42,13 +42,7 @@ def setup_gpio():
         GPIO.setup(POWER_ON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         GPIO.setup(POWER_OFF_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         
-        # Add event detection for both buttons (rising edge = button press)
-        GPIO.add_event_detect(POWER_ON_PIN, GPIO.RISING, 
-                            callback=power_on_callback, bouncetime=200)
-        GPIO.add_event_detect(POWER_OFF_PIN, GPIO.RISING, 
-                            callback=power_off_callback, bouncetime=200)
-        
-        logger.info("GPIO setup complete")
+        logger.info("GPIO setup complete - using polling method only")
         return True
     except Exception as e:
         logger.error(f"GPIO setup failed: {e}")
