@@ -83,6 +83,12 @@ h1, h2 {
     color: white;
 }
 
+.btn-secondary {
+    background-color: #6c757d;
+    color: white;
+    margin-right: 10px;
+}
+
 .status-panel, .custom-command {
     margin-top: 20px;
     padding: 15px;
