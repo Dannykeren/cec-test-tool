@@ -9,6 +9,9 @@ import logging
 import threading
 import cec_control
 
+# Global variable to track whether GPIO has been setup
+gpio_setup = False
+
 # Set up logging with more detailed debug info
 logging.basicConfig(
     level=logging.DEBUG,  # Changed to DEBUG for more verbose logging
@@ -92,7 +95,6 @@ def handle_power_on():
         logger.info(f"CEC power ON response: {response[:50]}...")  # Log first 50 chars
     except Exception as e:
         logger.error(f"Exception during power ON command: {e}")
-        GPIO.cleanup()  # Clean up GPIO after handling button press
 
 def handle_power_off():
     """Handle power off button press with extensive debugging"""
@@ -103,7 +105,6 @@ def handle_power_off():
         logger.info(f"CEC power OFF response: {response[:50]}...")  # Log first 50 chars
     except Exception as e:
         logger.error(f"Exception during power OFF command: {e}")
-        GPIO.cleanup()  # Clean up GPIO after handling button press
         
 def poll_gpio_pins():
     """Poll GPIO pins in a simple, reliable way"""
@@ -175,14 +176,17 @@ def poll_gpio_pins():
 def start_gpio_handler():
     """Start the GPIO handler with improved error handling"""
     global running
+    global gpio_setup
     
     logger.info("Starting GPIO handler...")
     
     try:
-        # Setup GPIO pins
-        if not setup_gpio():
-            logger.error("GPIO setup failed, cannot continue")
-            return
+        # Setup GPIO pins only if not already set up
+        if not gpio_setup:
+            if not setup_gpio():
+                logger.error("GPIO setup failed, cannot continue")
+                return
+            gpio_setup = True
         
         # Start the polling loop in the main thread
         logger.info("Starting GPIO polling loop")
@@ -194,13 +198,26 @@ def start_gpio_handler():
     except Exception as e:
         logger.error(f"Fatal error in GPIO handler: {e}")
     finally:
-        # Clean up
+        # Clean up GPIO resources when exiting
         running = False
-        try:
+        cleanup_gpio()
+
+def cleanup_gpio():
+    """Clean up GPIO resources"""
+    try:
+        if gpio_setup:
             GPIO.cleanup()
             logger.info("GPIO resources cleaned up")
-        except Exception as e:
-            logger.error(f"Error during GPIO cleanup: {e}")
+    except Exception as e:
+        logger.error(f"Error during GPIO cleanup: {e}")
+
+# Run the GPIO handler when the script is executed directly
+if __name__ == "__main__":
+    print("Starting GPIO Handler in debug mode...")
+    try:
+        start_gpio_handler()
+    finally:
+        cleanup_gpio()
 
 # Run the GPIO handler when the script is executed directly
 if __name__ == "__main__":
