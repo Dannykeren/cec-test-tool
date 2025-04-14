@@ -33,21 +33,26 @@ last_button_press = 0
 
 def setup_gpio():
     """Initialize the GPIO pins"""
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setwarnings(False)
-    
-    # Set up the input pins with pull-down resistors
-    # Buttons will be connected between pins and 3.3V (active high)
-    GPIO.setup(POWER_ON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-    GPIO.setup(POWER_OFF_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-    
-    # Add event detection for both buttons (rising edge = button press)
-    GPIO.add_event_detect(POWER_ON_PIN, GPIO.RISING, 
-                         callback=power_on_callback, bouncetime=300)
-    GPIO.add_event_detect(POWER_OFF_PIN, GPIO.RISING, 
-                         callback=power_off_callback, bouncetime=300)
-    
-    logger.info("GPIO setup complete")
+    try:
+        logger.info("Setting up GPIO pins...")
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        
+        # Set up the input pins with pull-down resistors
+        GPIO.setup(POWER_ON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        GPIO.setup(POWER_OFF_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        
+        # Add event detection for both buttons (rising edge = button press)
+        GPIO.add_event_detect(POWER_ON_PIN, GPIO.RISING, 
+                            callback=power_on_callback, bouncetime=200)
+        GPIO.add_event_detect(POWER_OFF_PIN, GPIO.RISING, 
+                            callback=power_off_callback, bouncetime=200)
+        
+        logger.info("GPIO setup complete")
+        return True
+    except Exception as e:
+        logger.error(f"GPIO setup failed: {e}")
+        return False
 
 def is_debounced():
     """Check if enough time has passed since the last button press"""
@@ -83,22 +88,61 @@ def cleanup():
     GPIO.cleanup()
     logger.info("GPIO resources cleaned up")
 
+def manual_poll_gpio():
+    """Manually poll GPIO pins as a backup"""
+    prev_on_state = 0
+    prev_off_state = 0
+    
+    while True:
+        try:
+            on_state = GPIO.input(POWER_ON_PIN)
+            off_state = GPIO.input(POWER_OFF_PIN)
+            
+            # Check for state changes (0 to 1 = button pressed)
+            if on_state == 1 and prev_on_state == 0:
+                logger.debug("ON button state change detected in polling loop")
+                power_on_callback(POWER_ON_PIN)
+            
+            if off_state == 1 and prev_off_state == 0:
+                logger.debug("OFF button state change detected in polling loop")
+                power_off_callback(POWER_OFF_PIN)
+            
+            # Update previous states
+            prev_on_state = on_state
+            prev_off_state = off_state
+            
+            # Sleep to reduce CPU usage
+            time.sleep(0.1)
+            
+        except Exception as e:
+            logger.error(f"Error in GPIO polling loop: {e}")
+            time.sleep(1)
+
 def start_gpio_handler():
     """Start the GPIO handler"""
     try:
-        setup_gpio()
-        logger.info("GPIO handler started. Press Ctrl+C to exit.")
+        if not setup_gpio():
+            logger.error("Failed to set up GPIO. Cannot continue.")
+            return
+        
+        logger.info("GPIO handler started with both event detection and polling")
+        
+        # Start the polling thread as a backup
+        polling_thread = Thread(target=manual_poll_gpio)
+        polling_thread.daemon = True
+        polling_thread.start()
         
         # Keep the script running
         while True:
-            time.sleep(1)
+            time.sleep(5)
             
     except KeyboardInterrupt:
         logger.info("GPIO handler stopped by user")
     except Exception as e:
         logger.error(f"GPIO handler error: {e}")
     finally:
-        cleanup()
+        GPIO.cleanup()
+        logger.info("GPIO resources cleaned up")
 
 # Run the GPIO handler when the script is executed directly
 if __name__ == "__main__":
