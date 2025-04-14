@@ -84,8 +84,8 @@ def cleanup():
 
 def manual_poll_gpio():
     """Manually poll GPIO pins as a backup"""
-    prev_on_state = 0
-    prev_off_state = 0
+    prev_on_state = GPIO.input(POWER_ON_PIN)  # Initialize with current state
+    prev_off_state = GPIO.input(POWER_OFF_PIN)  # Initialize with current state
     
     while True:
         try:
@@ -94,11 +94,11 @@ def manual_poll_gpio():
             
             # Check for state changes (0 to 1 = button pressed)
             if on_state == 1 and prev_on_state == 0:
-                logger.debug("ON button state change detected in polling loop")
+                logger.debug("ON button press detected in polling loop")
                 power_on_callback(POWER_ON_PIN)
             
             if off_state == 1 and prev_off_state == 0:
-                logger.debug("OFF button state change detected in polling loop")
+                logger.debug("OFF button press detected in polling loop")
                 power_off_callback(POWER_OFF_PIN)
             
             # Update previous states
