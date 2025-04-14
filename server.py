@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CEC Test Tool - Web Server with Ultra-Simple GPIO Handling
+CEC Test Tool - Web Server with Interrupt Reset Approach
 """
 import os
 import logging
@@ -35,6 +35,7 @@ oled_initialized = False
 POWER_ON_PIN = 17   # Physical pin 11
 POWER_OFF_PIN = 27  # Physical pin 13
 running = True
+reset_thread = None
 
 def get_ip_address():
     """Get the IP address of the Raspberry Pi"""
@@ -95,57 +96,88 @@ def custom_command():
     result = cec_control.send_custom_command(data['command'])
     return jsonify({'status': 'success', 'result': result})
 
-def simple_gpio_loop():
-    """Ultra-simple GPIO monitoring loop"""
-    logger.info("Starting ultra-simple GPIO loop")
+def power_on_callback(channel):
+    """Callback for power on button press"""
+    logger.info("POWER ON button pressed")
+    cec_control.power_on()
     
+    # Schedule a reset of the event detection
+    schedule_reset()
+
+def power_off_callback(channel):
+    """Callback for power off button press"""
+    logger.info("POWER OFF button pressed")
+    cec_control.power_off()
+    
+    # Schedule a reset of the event detection
+    schedule_reset()
+
+def schedule_reset():
+    """Schedule a reset of the event detection"""
+    global reset_thread
+    
+    if reset_thread is None or not reset_thread.is_alive():
+        reset_thread = threading.Thread(target=delayed_reset)
+        reset_thread.daemon = True
+        reset_thread.start()
+
+def delayed_reset():
+    """Reset the event detection after a short delay"""
     try:
+        # Allow time for the current callback to complete
+        time.sleep(0.5)
+        
+        logger.debug("Performing GPIO event detection reset")
+        
+        # Remove existing event detection
+        GPIO.remove_event_detect(POWER_ON_PIN)
+        GPIO.remove_event_detect(POWER_OFF_PIN)
+        
+        # Brief pause
+        time.sleep(0.1)
+        
+        # Re-add event detection
+        GPIO.add_event_detect(POWER_ON_PIN, GPIO.RISING, 
+                             callback=power_on_callback, 
+                             bouncetime=300)
+        
+        GPIO.add_event_detect(POWER_OFF_PIN, GPIO.RISING, 
+                             callback=power_off_callback, 
+                             bouncetime=300)
+        
+        logger.debug("GPIO event detection reset complete")
+    except Exception as e:
+        logger.error(f"Error in delayed reset: {e}")
+
+def setup_gpio():
+    """Set up GPIO with event detection"""
+    try:
+        # Clean up any existing setup
+        try:
+            GPIO.cleanup()
+        except:
+            pass
+        
         # Setup GPIO
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
         GPIO.setup(POWER_ON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         GPIO.setup(POWER_OFF_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         
-        # Initialize state
-        prev_on = 0
-        prev_off = 0
-        on_count = 0
-        off_count = 0
+        # Add event detection
+        GPIO.add_event_detect(POWER_ON_PIN, GPIO.RISING, 
+                             callback=power_on_callback, 
+                             bouncetime=300)
         
-        logger.info("GPIO initialized in ultra-simple mode")
+        GPIO.add_event_detect(POWER_OFF_PIN, GPIO.RISING, 
+                             callback=power_off_callback, 
+                             bouncetime=300)
         
-        # Ultra-simple monitoring loop
-        while running:
-            # Get current button states
-            curr_on = GPIO.input(POWER_ON_PIN)
-            curr_off = GPIO.input(POWER_OFF_PIN)
-            
-            # Check for button presses (LOW to HIGH transitions)
-            if curr_on == 1 and prev_on == 0:
-                on_count += 1
-                logger.info(f"POWER ON button pressed (#{on_count})")
-                cec_control.power_on()
-            
-            if curr_off == 1 and prev_off == 0:
-                off_count += 1
-                logger.info(f"POWER OFF button pressed (#{off_count})")
-                cec_control.power_off()
-            
-            # Update previous states
-            prev_on = curr_on
-            prev_off = curr_off
-            
-            # Brief sleep
-            time.sleep(0.05)
-            
+        logger.info("GPIO setup with event detection completed")
+        return True
     except Exception as e:
-        logger.error(f"Error in GPIO loop: {e}")
-    finally:
-        logger.info("GPIO loop ended")
-        try:
-            GPIO.cleanup()
-        except:
-            pass
+        logger.error(f"GPIO setup failed: {e}")
+        return False
 
 def initialize_hardware():
     """Initialize hardware components"""
@@ -165,19 +197,49 @@ def initialize_hardware():
         logger.error(f"OLED display error: {e}")
         oled_initialized = False
     
-    # Start GPIO thread
-    gpio_thread = threading.Thread(target=simple_gpio_loop)
-    gpio_thread.daemon = True
-    gpio_thread.start()
-    if gpio_thread.is_alive():
-        logger.info("GPIO monitoring thread started")
-    else:
-        logger.error("Failed to start GPIO thread")
+    # Setup GPIO
+    if not setup_gpio():
+        logger.error("Failed to setup GPIO")
+
+def monitor_thread_function():
+    """Thread function for monitoring and resetting GPIO if needed"""
+    logger.info("Starting GPIO monitoring thread")
+    
+    last_check_time = time.time()
+    
+    while running:
+        try:
+            current_time = time.time()
+            
+            # Periodically (every 30 seconds) log status and check GPIO
+            if current_time - last_check_time > 30:
+                on_state = GPIO.input(POWER_ON_PIN)
+                off_state = GPIO.input(POWER_OFF_PIN)
+                logger.info(f"GPIO Status - ON pin: {on_state}, OFF pin: {off_state}")
+                
+                last_check_time = current_time
+            
+            time.sleep(1)
+            
+        except Exception as e:
+            logger.error(f"Error in monitor thread: {e}")
+            time.sleep(5)
+            
+            # Try to recover
+            try:
+                setup_gpio()
+            except:
+                pass
 
 if __name__ == '__main__':
     try:
         # Initialize hardware
         initialize_hardware()
+        
+        # Start monitoring thread
+        monitor_thread = threading.Thread(target=monitor_thread_function)
+        monitor_thread.daemon = True
+        monitor_thread.start()
         
         # Start the web server
         ip_address = get_ip_address()
