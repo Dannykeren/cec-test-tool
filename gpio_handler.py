@@ -113,48 +113,32 @@ def trigger_power_off():
         logger.error(f"Failed to create power OFF trigger: {e}")
 
 def gpio_monitoring_loop():
-    """Main monitoring loop for GPIO pins"""
-    logger.info("Starting GPIO monitoring loop")
+    """Simplified monitoring loop - just checks current state and acts"""
+    logger.info("Starting simplified GPIO monitoring loop")
     
-    # Initialize state tracking
-    last_on_state = GPIO.input(POWER_ON_PIN)
-    last_off_state = GPIO.input(POWER_OFF_PIN)
-    last_press_time = 0
     on_count = 0
     off_count = 0
     
     # Main loop
     while running:
         try:
-            # Read current states
-            curr_on_state = GPIO.input(POWER_ON_PIN)
-            curr_off_state = GPIO.input(POWER_OFF_PIN)
-            curr_time = time.time()
+            # Simply check if pins are HIGH right now
+            if GPIO.input(POWER_ON_PIN) == 1:
+                on_count += 1
+                logger.info(f"ON button is HIGH #{on_count}")
+                trigger_power_on()
+                # Sleep after sending command to avoid duplicate triggers
+                time.sleep(0.5)
             
-            # Check for ON button press (LOW to HIGH)
-            if curr_on_state == 1 and last_on_state == 0:
-                # Simple debounce
-                if curr_time - last_press_time > 0.3:
-                    on_count += 1
-                    logger.info(f"ON button pressed #{on_count}")
-                    trigger_power_on()
-                    last_press_time = curr_time
+            if GPIO.input(POWER_OFF_PIN) == 1:
+                off_count += 1
+                logger.info(f"OFF button is HIGH #{off_count}")
+                trigger_power_off()
+                # Sleep after sending command to avoid duplicate triggers
+                time.sleep(0.5)
             
-            # Check for OFF button press (LOW to HIGH)
-            if curr_off_state == 1 and last_off_state == 0:
-                # Simple debounce
-                if curr_time - last_press_time > 0.3:
-                    off_count += 1
-                    logger.info(f"OFF button pressed #{off_count}")
-                    trigger_power_off()
-                    last_press_time = curr_time
-            
-            # Update previous states
-            last_on_state = curr_on_state
-            last_off_state = curr_off_state
-            
-            # Sleep briefly
-            time.sleep(0.05)
+            # Brief sleep to avoid hammering the CPU
+            time.sleep(0.1)
             
         except Exception as e:
             logger.error(f"Error in monitoring loop: {e}")
@@ -163,8 +147,6 @@ def gpio_monitoring_loop():
             # Try to recover
             try:
                 setup_gpio()
-                last_on_state = GPIO.input(POWER_ON_PIN)
-                last_off_state = GPIO.input(POWER_OFF_PIN)
             except:
                 pass
 
